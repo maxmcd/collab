@@ -11,6 +11,8 @@ import (
 	"net/http"
 	"os"
 	"time"
+
+	"github.com/golang/glog"
 )
 
 type File struct {
@@ -23,7 +25,7 @@ type File struct {
 	Contents []File
 }
 
-func fileFromFile(f os.FileInfo) File {
+func fileFromFileInfo(f os.FileInfo) File {
 	return File{
 		Name:     f.Name(),
 		Size:     f.Size(),
@@ -35,8 +37,27 @@ func fileFromFile(f os.FileInfo) File {
 	}
 }
 
-func Upload(host, file string) {
-
+func UploadDirectory(host, name string, files []File) error {
+	filesBytes, err := json.Marshal(files)
+	if err != nil {
+		return err
+	}
+	resp, err := http.Post(
+		fmt.Sprintf("%s/directory/%s", host, name),
+		"application/json",
+		bytes.NewBuffer(filesBytes),
+	)
+	if err != nil {
+		return err
+	}
+	if resp.StatusCode == http.StatusConflict {
+		return errors.New("Cannot upload file metadata, there is already an active dir with this name")
+	}
+	if resp.StatusCode != http.StatusCreated {
+		glog.Error(resp.StatusCode)
+		return errors.New("directory not created")
+	}
+	return nil
 }
 
 func ReadAllFiles() (files []File, err error) {
@@ -45,16 +66,16 @@ func ReadAllFiles() (files []File, err error) {
 
 func readDir(dirName string) (files []File, err error) {
 	fmt.Println(dirName)
-	fls, err := ioutil.ReadDir(dirName)
+	filesInfos, err := ioutil.ReadDir(dirName)
 	if err != nil {
 		return
 	}
-	for _, f := range fls {
-		fmt.Println(f.Name())
-		file := fileFromFile(f)
+	for _, fi := range filesInfos {
+		fmt.Println(fi.Name())
+		file := fileFromFileInfo(fi)
 
-		if f.IsDir() {
-			contents, err := readDir(dirName + f.Name())
+		if fi.IsDir() {
+			contents, err := readDir(dirName + fi.Name() + "/")
 			if err != nil {
 				return files, err
 			}
@@ -74,7 +95,7 @@ func uploadChunks(host, path string, files []File) ([]File, error) {
 	fmt.Println(path)
 	for _, f := range files {
 		if f.IsDir {
-			contents, err := uploadChunks(host, path+f.Name, f.Contents)
+			contents, err := uploadChunks(host, path+f.Name+"/", f.Contents)
 			if err != nil {
 				return files, err
 			}
@@ -92,7 +113,7 @@ func uploadChunks(host, path string, files []File) ([]File, error) {
 }
 
 func uploadFile(host, path string, file *File) (hashes []string, err error) {
-	const bufSize = 4000
+	const bufSize = 1 << 22
 	f, err := os.Open(path + "/" + file.Name)
 	if err != nil {
 		return
@@ -157,4 +178,47 @@ func FetchAllFiles(host, name string) (files []File, err error) {
 	}
 
 	return files, nil
+}
+
+func CreateFiles(host string, files []File) error {
+	return createFiles(host, "./", files)
+}
+
+func createFiles(host, path string, files []File) error {
+	for _, file := range files {
+		createFile(host, path, file)
+		if file.IsDir {
+			if err := createFiles(host, path+file.Name+"/", file.Contents); err != nil {
+				return err
+			}
+		}
+	}
+	return nil
+}
+
+func createFile(host, path string, file File) error {
+	if file.IsDir {
+		if err := os.Mkdir(path+file.Name, file.Mode); err != nil {
+			return err
+		}
+	} else {
+		fi, err := os.Create(path + file.Name)
+		fi.Chmod(file.Mode)
+		if err != nil {
+			return err
+		}
+		for _, sha := range file.Parts {
+			resp, err := http.Get(host + "/chunk/" + sha)
+			if err != nil {
+				return err
+			}
+			if _, err := io.Copy(fi, resp.Body); err != nil {
+				return err
+			}
+		}
+		if err := os.Chtimes(path+file.Name, file.ModTime, file.ModTime); err != nil {
+			return err
+		}
+	}
+	return nil
 }

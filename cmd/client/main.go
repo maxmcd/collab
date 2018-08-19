@@ -37,14 +37,19 @@ func main() {
 
 func serve(name string) {
 	allFiles, err := files.ReadAllFiles()
-
-	fmt.Println(allFiles)
-	fmt.Println(err)
+	if err != nil {
+		glog.Fatal(err)
+	}
 	allFiles, err = files.UploadChunks(HOST, allFiles)
 	if err != nil {
-		glog.Error(err)
+		glog.Fatal(err)
 	}
-	fmt.Println(allFiles)
+	if err := files.UploadDirectory(HOST, name, allFiles); err != nil {
+		glog.Fatal(err)
+	}
+	if err := files.WatchFiles(allFiles); err != nil {
+		glog.Fatal(err)
+	}
 }
 
 func receive(name string) {
@@ -59,6 +64,13 @@ func receive(name string) {
 		return
 	}
 	allFiles, err := files.FetchAllFiles(HOST, name)
-	fmt.Println(allFiles)
-	fmt.Println(err)
+	if err != nil {
+		glog.Fatal(err)
+	}
+	if err := files.CreateFiles(HOST, allFiles); err != nil {
+		glog.Fatal(err)
+	}
+	if err := files.WatchFiles(allFiles); err != nil {
+		glog.Fatal(err)
+	}
 }

@@ -1,2 +1,4 @@
 .DS_Store
 cmd/server/chunk-*
+/cmd/client/mine
+/cmd/client/client

@@ -48,7 +48,7 @@ Having worked with WebRTC recently I initially wanted to set up a pure P2P solut
 I've had [some experience](https://github.com/golangbox/gobox) writing a dropbox clone before so decided to go with this strategy. General setup would be:
 
  - Client library that can host a directory or pull down a shared directory
- - Files are split into 4kb chunks before being sent to the server
+ - Files are split into 4mb chunks before being sent to the server
  - Central blob store stores chunks as their sha256 hashes
  - Websocket connection shares file metadata and chunk descriptions
 
