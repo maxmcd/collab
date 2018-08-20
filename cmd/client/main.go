@@ -13,7 +13,7 @@ import (
 const HOST = "http://localhost:8080"
 
 func incorrectUse() {
-	fmt.Println("'collab serve NAME' or 'collab receive NAME'")
+	fmt.Println("Use with 'collab serve NAME' or 'collab receive NAME'")
 }
 func main() {
 	flag.Set("logtostderr", "true")
@@ -36,41 +36,39 @@ func main() {
 }
 
 func serve(name string) {
-	allFiles, err := files.ReadAllFiles()
-	if err != nil {
+	md := files.New(HOST, name)
+	glog.Info("Reading files and uploading data, do not edit directory contents!")
+	if err := md.ReadAllFiles(); err != nil {
 		glog.Fatal(err)
 	}
-	allFiles, err = files.UploadChunks(HOST, allFiles)
-	if err != nil {
+	if err := md.UploadChunks(); err != nil {
 		glog.Fatal(err)
 	}
-	if err := files.UploadDirectory(HOST, name, allFiles); err != nil {
+	if err := md.UploadDirectory(); err != nil {
 		glog.Fatal(err)
 	}
-	if err := files.WatchFiles(allFiles); err != nil {
+	glog.Info("Completed! Access this working directory with: `collab receive " + name + "`")
+	if err := md.WatchFiles(); err != nil {
 		glog.Fatal(err)
 	}
 }
 
 func receive(name string) {
-	fls, err := ioutil.ReadDir("./")
-	if err != nil {
+	if fls, err := ioutil.ReadDir("./"); err != nil {
 		glog.Fatal(err)
-	}
-	if len(fls) > 0 {
-		fmt.Println("This is not an empty directory. Create" +
+	} else if len(fls) > 0 {
+		glog.Fatal("This is not an empty directory. Create" +
 			" an empty directory and run the command again to " +
 			"download the shared directory")
-		return
 	}
-	allFiles, err := files.FetchAllFiles(HOST, name)
-	if err != nil {
+	md := files.New(HOST, name)
+	if err := md.FetchAllFiles(); err != nil {
 		glog.Fatal(err)
 	}
-	if err := files.CreateFiles(HOST, allFiles); err != nil {
+	if err := md.CreateFiles(); err != nil {
 		glog.Fatal(err)
 	}
-	if err := files.WatchFiles(allFiles); err != nil {
+	if err := md.WatchFiles(); err != nil {
 		glog.Fatal(err)
 	}
 }

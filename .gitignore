@@ -2,3 +2,4 @@
 cmd/server/chunk-*
 /cmd/client/mine
 /cmd/client/client
+/cmd/server/server

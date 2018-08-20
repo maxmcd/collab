@@ -37,13 +37,27 @@ func fileFromFileInfo(f os.FileInfo) File {
 	}
 }
 
-func UploadDirectory(host, name string, files []File) error {
-	filesBytes, err := json.Marshal(files)
+type Metadata struct {
+	Files []File
+	Host  string
+	Name  string
+}
+
+func New(host, name string) Metadata {
+	return Metadata{
+		Files: []File{},
+		Host:  host,
+		Name:  name,
+	}
+}
+
+func (md *Metadata) UploadDirectory() error {
+	filesBytes, err := json.Marshal(md.Files)
 	if err != nil {
 		return err
 	}
 	resp, err := http.Post(
-		fmt.Sprintf("%s/directory/%s", host, name),
+		fmt.Sprintf("%s/directory/%s", md.Host, md.Name),
 		"application/json",
 		bytes.NewBuffer(filesBytes),
 	)
@@ -60,18 +74,18 @@ func UploadDirectory(host, name string, files []File) error {
 	return nil
 }
 
-func ReadAllFiles() (files []File, err error) {
-	return readDir("./")
+func (md *Metadata) ReadAllFiles() (err error) {
+	files, err := readDir("./")
+	md.Files = files
+	return err
 }
 
 func readDir(dirName string) (files []File, err error) {
-	fmt.Println(dirName)
 	filesInfos, err := ioutil.ReadDir(dirName)
 	if err != nil {
 		return
 	}
 	for _, fi := range filesInfos {
-		fmt.Println(fi.Name())
 		file := fileFromFileInfo(fi)
 
 		if fi.IsDir() {
@@ -86,13 +100,14 @@ func readDir(dirName string) (files []File, err error) {
 	return
 }
 
-func UploadChunks(host string, files []File) ([]File, error) {
-	return uploadChunks(host, "./", files)
+func (md *Metadata) UploadChunks() error {
+	files, err := uploadChunks(md.Host, "./", md.Files)
+	md.Files = files
+	return err
 }
 
 func uploadChunks(host, path string, files []File) ([]File, error) {
 	var out []File
-	fmt.Println(path)
 	for _, f := range files {
 		if f.IsDir {
 			contents, err := uploadChunks(host, path+f.Name+"/", f.Contents)
@@ -164,24 +179,23 @@ func uploadChunk(host, sha string, body []byte) error {
 	return nil
 }
 
-func FetchAllFiles(host, name string) (files []File, err error) {
-	resp, err := http.Get(fmt.Sprintf("%s/directory/%s", host, name))
+func (md *Metadata) FetchAllFiles() error {
+	resp, err := http.Get(fmt.Sprintf("%s/directory/%s", md.Host, md.Name))
 	if err != nil {
-		return
+		return err
 	}
 	bytes, err := ioutil.ReadAll(resp.Body)
 	if err != nil {
-		return
+		return err
 	}
-	if err := json.Unmarshal(bytes, &files); err != nil {
-		return files, err
+	if err := json.Unmarshal(bytes, &md.Files); err != nil {
+		return err
 	}
-
-	return files, nil
+	return nil
 }
 
-func CreateFiles(host string, files []File) error {
-	return createFiles(host, "./", files)
+func (md *Metadata) CreateFiles() error {
+	return createFiles(md.Host, "./", md.Files)
 }
 
 func createFiles(host, path string, files []File) error {

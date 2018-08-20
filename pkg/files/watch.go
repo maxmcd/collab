@@ -1,17 +1,53 @@
 package files
 
 import (
+	"fmt"
 	"log"
+	"strings"
 
 	"github.com/fsnotify/fsnotify"
+	"github.com/golang/glog"
+	"github.com/gorilla/websocket"
 )
 
-func WatchFiles(files []File) error {
+func (md *Metadata) connectToServer() (c *websocket.Conn, err error) {
+	c, _, err = websocket.DefaultDialer.Dial(
+		fmt.Sprintf("%s/events/%s",
+			strings.Replace(md.Host, "http", "ws", 1),
+			md.Name,
+		),
+		nil,
+	)
+	if err != nil {
+		return
+	}
+	go func() {
+		for {
+			_, message, err := c.ReadMessage()
+			if err != nil {
+				glog.Fatal("ws read error:", err)
+				return
+			}
+			log.Printf("recv: %s\n", message)
+		}
+	}()
+	return
+}
+
+func (md *Metadata) WatchFiles() error {
 	watcher, err := fsnotify.NewWatcher()
 	if err != nil {
 		log.Fatal(err)
 	}
 	defer watcher.Close()
+
+	c, err := md.connectToServer()
+	if err != nil {
+		log.Fatal(err)
+	}
+	defer c.Close()
+
+	c.WriteMessage(websocket.TextMessage, []byte("hello"))
 
 	done := make(chan bool)
 	go func() {
@@ -28,7 +64,7 @@ func WatchFiles(files []File) error {
 		}
 	}()
 
-	if err := watchFiles(files, watcher, "./"); err != nil {
+	if err := watchFiles(md.Files, watcher, "./"); err != nil {
 		return err
 	}
 	<-done
