@@ -72,7 +72,7 @@ func WebsocketHandler(w http.ResponseWriter, r *http.Request) {
 			glog.Info("read error: ", err)
 			break
 		}
-		glog.Info("recv: ", message)
+		glog.Info("recv: ", string(message))
 		// err = c.WriteMessage(mt, message)
 		// if err != nil {
 		// 	log.Println("write:", err)

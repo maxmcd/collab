@@ -10,7 +10,7 @@ import (
 	"github.com/maxmcd/collab/pkg/files"
 )
 
-const HOST = "http://localhost:8080"
+var HOST = "http://localhost:8080"
 
 func incorrectUse() {
 	fmt.Println("Use with 'collab serve NAME' or 'collab receive NAME'")
@@ -18,7 +18,9 @@ func incorrectUse() {
 func main() {
 	flag.Set("logtostderr", "true")
 	flag.Parse()
-
+	if len(os.Getenv("HOST")) != 0 {
+		HOST = os.Getenv("HOST")
+	}
 	if len(os.Args) < 3 {
 		incorrectUse()
 		return

@@ -44,7 +44,7 @@ func (md *Metadata) connectToServer() (c *websocket.Conn, err error) {
 }
 
 type FileEvent struct {
-	Type         fsnotify.Op //Remove/Write/Create
+	Type         fsnotify.Op
 	Name         string
 	PreviousFile []string
 	File         *File
@@ -52,8 +52,8 @@ type FileEvent struct {
 }
 
 func (fe *FileEvent) isUnchanged() bool {
-	if fe.PreviousFile == nil {
-		return false
+	if fe.PreviousFile == nil && fe.File.Parts == nil {
+		return true
 	}
 	if len(fe.PreviousFile) != len(fe.File.Parts) {
 		return false
@@ -68,6 +68,7 @@ func (fe *FileEvent) isUnchanged() bool {
 
 func (md *Metadata) findParent(eventName string) (isRoot bool, parent *File) {
 	name := "./" + eventName
+
 	parts := strings.Split(name, "/")
 	if len(parts) == 2 {
 		isRoot = true
@@ -75,7 +76,7 @@ func (md *Metadata) findParent(eventName string) (isRoot bool, parent *File) {
 		var ok bool
 		parent, ok = md.fileMap[strings.Join(parts[1:], "/")]
 		if ok != true {
-			glog.Error("Can't find parent")
+			glog.Error("Can't find parent", parts)
 		}
 	}
 	return
@@ -138,11 +139,11 @@ func (md *Metadata) ProcessFileEvent(fe *FileEvent) error {
 	return nil
 }
 
-func (md *Metadata) processWatcherEvent(event fsnotify.FileEvent, c *websocket.Conn) {
+func (md *Metadata) processWatcherEvent(event fsnotify.Event, c *websocket.Conn, watcher *fsnotify.Watcher) {
 	file, ok := md.fileMap["./"+event.Name]
 	if ok != true && event.Op&fsnotify.Create != fsnotify.Create {
 		glog.Info(event.Name, "File not found in map")
-		continue
+		return
 	}
 	fe := FileEvent{
 		Type:  event.Op,
@@ -160,7 +161,7 @@ func (md *Metadata) processWatcherEvent(event fsnotify.FileEvent, c *websocket.C
 	if event.Op&fsnotify.Write == fsnotify.Write {
 		log.Println("modified file:", event.Name)
 		if fe.isUnchanged() {
-			continue
+			return
 		}
 	}
 
@@ -180,14 +181,11 @@ func (md *Metadata) processWatcherEvent(event fsnotify.FileEvent, c *websocket.C
 	}
 
 	if event.Op&fsnotify.Create == fsnotify.Create {
-		// add new file object
 		glog.Info("created file:", event.Name)
+		// TODO: this should be in ProcessFileEvent
 		if err := watcher.Add(event.Name); err != nil {
 			glog.Error(err)
 		}
-		// TOOD: get parent
-		// TODO: add file
-		// md.fileMap["./"+event.Name] =
 	}
 }
 
@@ -209,8 +207,11 @@ func (md *Metadata) WatchFiles() error {
 		for {
 			select {
 			case event := <-watcher.Events:
+				if strings.HasPrefix(event.Name, "./") {
+					event.Name = event.Name[2:]
+				}
 				glog.Info("event:", event)
-				md.processWatcherEvent(event, c)
+				md.processWatcherEvent(event, c, watcher)
 			case err := <-watcher.Errors:
 				glog.Info("error:", err)
 			}

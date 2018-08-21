@@ -1,0 +1,31 @@
+version: '3.2'
+
+services:
+  sender:
+    build:
+      context: .
+      dockerfile: ./docker/client.Dockerfile
+    depends_on:
+      - "server"
+    environment:
+      HOST: http://server:8080
+    command: /opt/collab serve shared-name
+  receiver:
+    build:
+      context: .
+      dockerfile: ./docker/client.Dockerfile
+    depends_on:
+      - server
+      - sender
+    environment:
+      HOST: http://server:8080
+    command: sh -c "mkdir foo && cd foo && /opt/collab receive shared-name"
+  server:
+    build:
+      context: .
+      dockerfile: ./docker/server.Dockerfile
+    command: /opt/collab-server
+    expose:
+      - "3000"
+
+    
