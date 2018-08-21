@@ -22,7 +22,7 @@ type File struct {
 	ModTime  time.Time
 	IsDir    bool
 	Parts    []string
-	Contents []File
+	Contents []*File
 }
 
 func fileFromFileInfo(f os.FileInfo) File {
@@ -33,21 +33,23 @@ func fileFromFileInfo(f os.FileInfo) File {
 		ModTime:  f.ModTime(),
 		IsDir:    f.IsDir(),
 		Parts:    []string{},
-		Contents: []File{},
+		Contents: []*File{},
 	}
 }
 
 type Metadata struct {
-	Files []File
-	Host  string
-	Name  string
+	Files   []*File
+	fileMap map[string]*File
+	Host    string
+	Name    string
 }
 
 func New(host, name string) Metadata {
 	return Metadata{
-		Files: []File{},
-		Host:  host,
-		Name:  name,
+		Files:   []*File{},
+		Host:    host,
+		Name:    name,
+		fileMap: make(map[string]*File),
 	}
 }
 
@@ -80,7 +82,7 @@ func (md *Metadata) ReadAllFiles() (err error) {
 	return err
 }
 
-func readDir(dirName string) (files []File, err error) {
+func readDir(dirName string) (files []*File, err error) {
 	filesInfos, err := ioutil.ReadDir(dirName)
 	if err != nil {
 		return
@@ -95,19 +97,31 @@ func readDir(dirName string) (files []File, err error) {
 			}
 			file.Contents = contents
 		}
-		files = append(files, file)
+		files = append(files, &file)
 	}
 	return
 }
 
+func readFileAndUpload(host, location string) (file *File, err error) {
+	fi, err := os.Stat(location)
+	if err != nil {
+		return
+	}
+	f := fileFromFileInfo(fi)
+	hashes, err := uploadFile(host, location)
+	if err != nil {
+		return
+	}
+	f.Parts = hashes
+	return &f, err
+}
+
 func (md *Metadata) UploadChunks() error {
-	files, err := uploadChunks(md.Host, "./", md.Files)
-	md.Files = files
+	_, err := uploadChunks(md.Host, "./", md.Files)
 	return err
 }
 
-func uploadChunks(host, path string, files []File) ([]File, error) {
-	var out []File
+func uploadChunks(host, path string, files []*File) ([]*File, error) {
 	for _, f := range files {
 		if f.IsDir {
 			contents, err := uploadChunks(host, path+f.Name+"/", f.Contents)
@@ -116,20 +130,19 @@ func uploadChunks(host, path string, files []File) ([]File, error) {
 			}
 			f.Contents = contents
 		} else {
-			parts, err := uploadFile(host, path, &f)
+			parts, err := uploadFile(host, path+"/"+f.Name)
 			if err != nil {
 				return files, err
 			}
 			f.Parts = parts
 		}
-		out = append(out, f)
 	}
-	return out, nil
+	return files, nil
 }
 
-func uploadFile(host, path string, file *File) (hashes []string, err error) {
+func uploadFile(host, location string) (hashes []string, err error) {
 	const bufSize = 1 << 22
-	f, err := os.Open(path + "/" + file.Name)
+	f, err := os.Open(location)
 	if err != nil {
 		return
 	}
@@ -184,6 +197,9 @@ func (md *Metadata) FetchAllFiles() error {
 	if err != nil {
 		return err
 	}
+	if resp.StatusCode == http.StatusNotFound {
+		return errors.New("Couldn't find a hosted directory by that name. Is the host live?")
+	}
 	bytes, err := ioutil.ReadAll(resp.Body)
 	if err != nil {
 		return err
@@ -198,7 +214,7 @@ func (md *Metadata) CreateFiles() error {
 	return createFiles(md.Host, "./", md.Files)
 }
 
-func createFiles(host, path string, files []File) error {
+func createFiles(host, path string, files []*File) error {
 	for _, file := range files {
 		createFile(host, path, file)
 		if file.IsDir {
@@ -210,29 +226,41 @@ func createFiles(host, path string, files []File) error {
 	return nil
 }
 
-func createFile(host, path string, file File) error {
+func createFile(host, path string, file *File) error {
 	if file.IsDir {
 		if err := os.Mkdir(path+file.Name, file.Mode); err != nil {
 			return err
 		}
 	} else {
-		fi, err := os.Create(path + file.Name)
-		fi.Chmod(file.Mode)
+		return _createFile(host, path+file.Name, file)
+	}
+	return nil
+}
+
+func writeFileBody(host string, to interface{}, file *File) error {
+	for _, sha := range file.Parts {
+		resp, err := http.Get(host + "/chunk/" + sha)
 		if err != nil {
 			return err
 		}
-		for _, sha := range file.Parts {
-			resp, err := http.Get(host + "/chunk/" + sha)
-			if err != nil {
-				return err
-			}
-			if _, err := io.Copy(fi, resp.Body); err != nil {
-				return err
-			}
-		}
-		if err := os.Chtimes(path+file.Name, file.ModTime, file.ModTime); err != nil {
+		if _, err := io.Copy(to.(io.Writer), resp.Body); err != nil {
 			return err
 		}
+	}
+	return nil
+}
+
+func _createFile(host, name string, file *File) error {
+	fi, err := os.Create(name)
+	fi.Chmod(file.Mode)
+	if err != nil {
+		return err
+	}
+	if err := writeFileBody(host, fi, file); err != nil {
+		return err
+	}
+	if err := os.Chtimes(name, file.ModTime, file.ModTime); err != nil {
+		return err
 	}
 	return nil
 }

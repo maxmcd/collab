@@ -34,7 +34,7 @@ func main() {
 		WriteTimeout:   10 * time.Second,
 		MaxHeaderBytes: 1 << 20,
 	}
-	glog.Infof("Broadcasting on port %s", port)
+	glog.Infof("Listening on port %s", port)
 	log.Fatal(s.ListenAndServe())
 }
 
