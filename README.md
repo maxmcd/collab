@@ -53,3 +53,35 @@ I've had [some experience](https://github.com/golangbox/gobox) writing a dropbox
  - Websocket connection shares file metadata and chunk descriptions
 
 Dropbox generally ignores opportunities to merge files and just creates two copies of a conflicted file. Maybe I'll try and merge text files but use the conflicting file strategy otherwise.
+
+## Implementation
+
+#### Structure
+
+There is a server and a client binary. The server handles blob storage and event passing, it also keeps a master of the file tree for the initial download. The client starts hosting a directory with `collab serve shared-key`. The entire directory is crawled, indexed, and uploaded to the server in 4mb (or less) hashed chunks. The directory server then tells another client to start receiving with `collab receive shared-key`. The other client pulls down the listing of all available files and downloads their chunks, reassembling them as a replicated filsystem. From there any filesystem event is sent as a websocket message to the server and listeners are notified of changes. Listeners then pull down any file chunks they might need, or make any other necessary filesystem changes.
+
+Current limitations/bugs:
+
+ - Watching and event receiving are very buggy
+ - New files also generate filesystem events, causing some loops
+ - The servers file tree isn't currently updated when it changes
+ - Deletion and directory creation likely don't work
+ - Merge conflicts are not handled
+
+
+#### Running
+
+```bash
+docker-compose up --build
+# server and clients are now running
+
+# in another terminal window:
+docker-compose exec sender bash
+# you can now make changes to the sender filesystem
+# this directory (/opt/) is the shared directory
+
+# in another terminal window:
+docker-compose exec receiver bash
+# cd into /opt/foo
+# this is the copy of the hosts filesystem
+```
