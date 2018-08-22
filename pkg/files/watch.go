@@ -5,7 +5,6 @@ import (
 	"encoding/json"
 	"fmt"
 	"io/ioutil"
-	"log"
 	"strings"
 
 	"github.com/fsnotify/fsnotify"
@@ -35,6 +34,7 @@ func (md *Metadata) connectToServer() (c *websocket.Conn, err error) {
 			if err := json.Unmarshal(message, &fe); err != nil {
 				glog.Error(err)
 			}
+			md.lastInbound = &fe
 			if err := md.ProcessFileEvent(&fe); err != nil {
 				glog.Error(err)
 			}
@@ -83,22 +83,6 @@ func (md *Metadata) findParent(eventName string) (isRoot bool, parent *File) {
 }
 
 func (md *Metadata) ProcessFileEvent(fe *FileEvent) error {
-	var file *File
-	var err error
-	if fe.Local &&
-		fe.Type&fsnotify.Remove != fsnotify.Remove &&
-		fe.Type&fsnotify.Chmod != fsnotify.Chmod {
-		file, err = readFileAndUpload(md.Host, "./"+fe.Name)
-
-		if err != nil {
-			return err
-		}
-		if fe.File != nil {
-			fe.File.Parts = file.Parts
-			fe.File.Mode = file.Mode
-			fe.File.ModTime = file.ModTime
-		}
-	}
 
 	if fe.Type&fsnotify.Remove == fsnotify.Remove {
 		glog.Info("remove file:", fe.Name)
@@ -122,8 +106,6 @@ func (md *Metadata) ProcessFileEvent(fe *FileEvent) error {
 			if err != nil {
 				glog.Error(err)
 			}
-		} else {
-			fe.File = file
 		}
 		// add new file object
 		isRoot, parent := md.findParent(fe.Name)
@@ -140,10 +122,48 @@ func (md *Metadata) ProcessFileEvent(fe *FileEvent) error {
 }
 
 func (md *Metadata) processWatcherEvent(event fsnotify.Event, c *websocket.Conn, watcher *fsnotify.Watcher) {
-	file, ok := md.fileMap["./"+event.Name]
-	if ok != true && event.Op&fsnotify.Create != fsnotify.Create {
+	if event.Op == fsnotify.Chmod {
+		// don't care about chmod at the moment...
+		return
+	}
+	glog.Info("event:", event)
+	// if md.lastInbound != nil &&
+	// 	md.lastInbound.Name == event.Name &&
+	// 	md.lastInbound.Type == event.Op {
+	// 	// quite a bit of a hack to prevent duplicate events
+	//  // disabling for the moment
+	// 	return
+	// }
+	location := "./" + event.Name
+
+	file, ok := md.fileMap[location]
+	if ok != true && event.Op != fsnotify.Create {
 		glog.Info(event.Name, "File not found in map")
 		return
+	}
+	if file != nil && event.Op == fsnotify.Create {
+		if err := watcher.Add(event.Name); err != nil {
+			glog.Error(err)
+		}
+		// we already have the creation tracked, but it is
+		// being created, so add to watcher
+		return
+	}
+	if file == nil && event.Op == fsnotify.Create {
+		// assume file is created locally
+		// a remote event would have been put in the map
+		var err error
+		file, err = readFileAndUpload(md.Host, location)
+		if err != nil {
+			glog.Error(err)
+		}
+		md.fileMap[location] = file
+		if err := watcher.Add(event.Name); err != nil {
+			glog.Error(err)
+		}
+	}
+	if file == nil && event.Op == fsnotify.Write {
+		glog.Error("write with null tracked file")
 	}
 	fe := FileEvent{
 		Type:  event.Op,
@@ -154,15 +174,19 @@ func (md *Metadata) processWatcherEvent(event fsnotify.Event, c *websocket.Conn,
 	if file != nil {
 		fe.PreviousFile = file.Parts
 	}
-	err := md.ProcessFileEvent(&fe)
-	if err != nil {
-		glog.Error(err)
-	}
-	if event.Op&fsnotify.Write == fsnotify.Write {
-		log.Println("modified file:", event.Name)
+	if event.Op == fsnotify.Write {
+		hashes, err := uploadFile(md.Host, location)
+		if err != nil {
+			glog.Error(err)
+		}
+		fe.File.Parts = hashes
 		if fe.isUnchanged() {
 			return
 		}
+	}
+
+	if err := md.ProcessFileEvent(&fe); err != nil {
+		glog.Error(err)
 	}
 
 	fe.Local = false
@@ -174,19 +198,7 @@ func (md *Metadata) processWatcherEvent(event fsnotify.Event, c *websocket.Conn,
 		glog.Error(err)
 	}
 
-	// rename
-	if event.Op&fsnotify.Remove == fsnotify.Remove {
-		glog.Info("remove file:", event.Name)
-		// what happens with directories?
-	}
-
-	if event.Op&fsnotify.Create == fsnotify.Create {
-		glog.Info("created file:", event.Name)
-		// TODO: this should be in ProcessFileEvent
-		if err := watcher.Add(event.Name); err != nil {
-			glog.Error(err)
-		}
-	}
+	// TODO: rename
 }
 
 func (md *Metadata) WatchFiles() error {
@@ -210,7 +222,6 @@ func (md *Metadata) WatchFiles() error {
 				if strings.HasPrefix(event.Name, "./") {
 					event.Name = event.Name[2:]
 				}
-				glog.Info("event:", event)
 				md.processWatcherEvent(event, c, watcher)
 			case err := <-watcher.Errors:
 				glog.Info("error:", err)

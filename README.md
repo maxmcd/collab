@@ -58,14 +58,15 @@ Dropbox generally ignores opportunities to merge files and just creates two copi
 
 #### Structure
 
-There is a server and a client binary. The server handles blob storage and event passing, it also keeps a master of the file tree for the initial download. The client starts hosting a directory with `collab serve shared-key`. The entire directory is crawled, indexed, and uploaded to the server in 4mb (or less) hashed chunks. The directory server then tells another client to start receiving with `collab receive shared-key`. The other client pulls down the listing of all available files and downloads their chunks, reassembling them as a replicated filsystem. From there any filesystem event is sent as a websocket message to the server and listeners are notified of changes. Listeners then pull down any file chunks they might need, or make any other necessary filesystem changes.
+There is a server and a client binary. The server handles blob storage and event passing, it also keeps a master of the file tree for the initial download. The client starts hosting a directory with `collab serve shared-key`. The entire directory is crawled, indexed, and uploaded to the server in 4mb (or less) hashed chunks. The directory server then tells another client to start receiving with `collab receive shared-key`. The other client pulls down the listing of all available files and downloads their chunks, reassembling them as a replicated filesystem. From there any filesystem event is sent as a websocket message to the server and listeners are notified of changes. Listeners then pull down any file chunks they might need, or make any other necessary filesystem changes.
 
 Current limitations/bugs:
 
- - Watching and event receiving are very buggy
- - New files also generate filesystem events, causing some loops
+ - Only really works at the moment if both users start their sessions simultaneously
+ - Checking the contents of a file triggers a WRITE filesystem event, which then ends up checking itself a few times. Haven't found a way to simply mitigate this
+ - Gzip could be easily added to file chunk requests, but it is currently not
  - The servers file tree isn't currently updated when it changes
- - Deletion and directory creation likely don't work
+ - Deletion is untested
  - Merge conflicts are not handled
 
 

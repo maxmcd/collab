@@ -38,10 +38,11 @@ func fileFromFileInfo(f os.FileInfo) File {
 }
 
 type Metadata struct {
-	Files   []*File
-	fileMap map[string]*File
-	Host    string
-	Name    string
+	Files       []*File
+	fileMap     map[string]*File
+	Host        string
+	Name        string
+	lastInbound *FileEvent
 }
 
 func New(host, name string) Metadata {
@@ -108,6 +109,9 @@ func readFileAndUpload(host, location string) (file *File, err error) {
 		return
 	}
 	f := fileFromFileInfo(fi)
+	if f.IsDir {
+		return &f, nil
+	}
 	hashes, err := uploadFile(host, location)
 	if err != nil {
 		return
@@ -142,7 +146,7 @@ func uploadChunks(host, path string, files []*File) ([]*File, error) {
 
 func uploadFile(host, location string) (hashes []string, err error) {
 	const bufSize = 1 << 22
-	f, err := os.Open(location)
+	f, err := os.OpenFile(location, os.O_RDONLY, 0)
 	if err != nil {
 		return
 	}
@@ -166,12 +170,20 @@ func uploadFile(host, location string) (hashes []string, err error) {
 	return
 }
 
+var CHUNK_MAP = map[string]bool{}
+
 func checkChunk(host, sha string) (exists bool, err error) {
+	if _, ok := CHUNK_MAP[sha]; ok {
+		return true, nil
+	}
 	resp, err := http.Head(fmt.Sprintf("%s/chunk/%s", host, sha))
 	if err != nil {
 		return
 	}
 	exists = resp.StatusCode == http.StatusOK
+	if exists {
+		CHUNK_MAP[sha] = true
+	}
 	return
 }
 
@@ -251,13 +263,19 @@ func writeFileBody(host string, to interface{}, file *File) error {
 }
 
 func _createFile(host, name string, file *File) error {
-	fi, err := os.Create(name)
-	fi.Chmod(file.Mode)
-	if err != nil {
-		return err
-	}
-	if err := writeFileBody(host, fi, file); err != nil {
-		return err
+	if file.IsDir {
+		if err := os.Mkdir(name, file.Mode); err != nil {
+			return err
+		}
+	} else {
+		fi, err := os.Create(name)
+		fi.Chmod(file.Mode)
+		if err != nil {
+			return err
+		}
+		if err := writeFileBody(host, fi, file); err != nil {
+			return err
+		}
 	}
 	if err := os.Chtimes(name, file.ModTime, file.ModTime); err != nil {
 		return err
