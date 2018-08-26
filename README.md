@@ -62,12 +62,10 @@ There is a server and a client binary. The server handles blob storage and event
 
 Current limitations/bugs:
 
- - Only really works at the moment if both users start their sessions simultaneously
- - Checking the contents of a file triggers a WRITE filesystem event, which then ends up checking itself a few times. Haven't found a way to simply mitigate this
+ - The filesystem event processor is single threaded and creates filesystem event noise that is perceived as user activity. The in-memory file tree should be better maintained and used to lock files from collab-created events and catch any user edits that might have happened during a lock. File edit times might also be useful to improve the performance of this step. 
  - Gzip could be easily added to file chunk requests, but it is currently not
- - The servers file tree isn't currently updated when it changes
- - Deletion is untested
  - Merge conflicts are not handled
+
 
 
 #### Running
@@ -86,3 +84,4 @@ docker-compose exec receiver bash
 # cd into /opt/foo
 # this is the copy of the hosts filesystem
 ```
+

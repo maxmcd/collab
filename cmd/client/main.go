@@ -64,13 +64,16 @@ func receive(name string) {
 			"download the shared directory")
 	}
 	md := files.New(HOST, name)
+	glog.Info("Fetching all files")
 	if err := md.FetchAllFiles(); err != nil {
 		glog.Fatal(err)
 	}
 	if err := md.CreateFiles(); err != nil {
 		glog.Fatal(err)
 	}
+	glog.Info("Completed! This directory is now shared.")
 	if err := md.WatchFiles(); err != nil {
 		glog.Fatal(err)
 	}
+
 }

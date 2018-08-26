@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"io/ioutil"
+	"os"
 	"strings"
 
 	"github.com/fsnotify/fsnotify"
@@ -51,6 +52,9 @@ type FileEvent struct {
 	Local        bool
 }
 
+func (fe *FileEvent) filename() string {
+	return "./" + fe.Name
+}
 func (fe *FileEvent) isUnchanged() bool {
 	if fe.PreviousFile == nil && fe.File.Parts == nil {
 		return true
@@ -86,9 +90,12 @@ func (md *Metadata) ProcessFileEvent(fe *FileEvent) error {
 
 	if fe.Type&fsnotify.Remove == fsnotify.Remove {
 		glog.Info("remove file:", fe.Name)
+		if err := os.Remove(fe.filename()); err != nil {
+			glog.Error(err)
+		}
+		delete(md.fileMap, fe.filename())
 		// isRoot, parent := md.findParent(fe.Name)
 		// TODO: handle removals
-		// what happens with directories?
 	}
 	if fe.Type&fsnotify.Write == fsnotify.Write {
 		if !fe.Local {
@@ -97,12 +104,12 @@ func (md *Metadata) ProcessFileEvent(fe *FileEvent) error {
 			if err := writeFileBody(md.Host, &buf, fe.File); err != nil {
 				glog.Error(err)
 			}
-			ioutil.WriteFile("./"+fe.Name, buf.Bytes(), fe.File.Mode)
+			ioutil.WriteFile(fe.filename(), buf.Bytes(), fe.File.Mode)
 		}
 	}
 	if fe.Type&fsnotify.Create == fsnotify.Create {
 		if !fe.Local {
-			err := _createFile(md.Host, "./"+fe.Name, fe.File)
+			err := _createFile(md.Host, fe.filename(), fe.File)
 			if err != nil {
 				glog.Error(err)
 			}
@@ -114,7 +121,7 @@ func (md *Metadata) ProcessFileEvent(fe *FileEvent) error {
 		} else if parent != nil {
 			parent.Contents = append(parent.Contents, fe.File)
 		}
-		md.fileMap["./"+fe.Name] = fe.File
+		md.fileMap[fe.filename()] = fe.File
 	}
 
 	// update tree
